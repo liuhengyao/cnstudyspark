@@ -1,8 +1,9 @@
 package cn.project.spark.utils
 
 import org.apache.log4j.{Level, Logger}
-import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.rdd.RDD
+import org.apache.spark.sql.{Dataset, Row, SparkSession}
+import org.apache.spark.sql.types._
 import org.apache.spark.{SparkConf, SparkContext}
 
 object MovieAnalyzerByGenderAndAge {
@@ -40,6 +41,29 @@ object MovieAnalyzerByGenderAndAge {
       * 3.使用内置的函数进行信息统计和分析
       */
     //定义表的schema模式
-    val schemaforusers = new StructType("")
+    //User.dat => Row(UserID,Gender,Age,Occupation,Zip-code)
+    val schemaforusers = new StructType("UserID::Gender::Age::OccupationID::Zipcode".split("::")
+    .map(column => StructField(column, StringType, true)))
+    val userRDDRows: RDD[Row] = userRDD.map(_.split("::")).map(line => Row(line(0).trim, line(1).trim, line(2).trim, line(3).trim))
+    val userDS: Dataset[Row] = sparkSql.createDataFrame(userRDDRows, schemaforusers)
+    //Ratings.dat -> Row(UserID,MiveID,Ratings,timestamp)
+    val schemaforatings = new StructType("UserID::MiveID::Ratings::timestamp".split("::")
+    .map(column => StructField(column, DataTypes.StringType, true)))
+    val ratingRDDRows: RDD[Row] = ratingsRDD.map(_.split("::")).map(line => Row(line(0).trim, line(1).trim, line(2).trim, line(3).trim))
+    val ratingsDS: Dataset[Row] = sparkSql.createDataFrame(ratingRDDRows, schemaforatings)
+
+    ratingsDS.createOrReplaceTempView("tb_rating")
+    userDS.createOrReplaceTempView("tb_users")
+    sparkSql.sql("select t.Gender,t.age,count(t.UserID) cnt from (" +
+      "select r.UserID, r.MiveId, r.Rating, r.timstamp, u.Gender ,u.Age, u.Occupation" +
+      "u.Zipcode from tb_rating r join tb_users u on r.UserID=u.UserID and r.MiveId == 1193) t " +
+      "group by t.Gender,t.Age").show()
+    ratingsDS.filter(s" MovieID = 1193")
+      .join(userDS, "UserID")
+      .select("Gender", "Age")
+      .groupBy("Gender", "Age")
+      .count()
+      .show(10)
+    sc.stop()
   }
 }
